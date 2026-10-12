@@ -1,0 +1,22 @@
+{
+  "name": "moc-healthy-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mộc Healthy AI Marketing & Commerce Platform - Monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:admin": "npm run dev -w apps/admin-web",
+    "dev:storefront": "npm run dev -w apps/storefront-web",
+    "dev:api": "uvicorn app.main:app --app-dir apps/api --reload --port 8000"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
