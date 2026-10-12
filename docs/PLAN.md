@@ -1,6 +1,7 @@
 # MỘC HEALTHY — AI MARKETING & COMMERCE PLATFORM
 ## Master Product & Technical Plan for Vibe Coding
 > **Revision 2026-10-01:** mở rộng kiến trúc thành Omnichannel Commerce Hub, hỗ trợ quản lý doanh thu từ Website + Grab + các marketplace khác, Smart Link, external attribution và settlement reconciliation.
+> **Revision 2026-10-12:** bổ sung đa ngôn ngữ 4 locale `vi` / `en` / `zh-CN` / `zh-TW` cho Storefront và Admin, bảng dịch nội dung kinh doanh, AI translate assist (nháp → duyệt → lưu), chuẩn typography Inter / Noto Sans SC / Noto Sans TC / Playfair Display. Xem §31A và `docs/I18N.md`. Mọi prompt từ 19A trở đi phải giao đủ 4 ngôn ngữ cùng lúc.
 
 
 > Mục tiêu của tài liệu này là làm **single source of truth** cho toàn bộ quá trình phát triển hệ thống Mộc Healthy.  
@@ -349,6 +350,7 @@ Settings
 ├── Tracking
 ├── Notifications
 ├── Audit Log
+├── Language & Localization
 └── System
 ```
 
@@ -386,6 +388,8 @@ Settings
 - seo_description
 - created_at
 - updated_at
+
+Translatable fields (xem §31A): `name`, `short_description`, `description`, `unit`, `ingredients`, `allergens`, `nutrition_text`, `preparation_note`, `storage_note`, `shelf_life`, `seo_title`, `seo_description`. Bản tiếng Việt nằm ở cột gốc của `products`; bản `en` / `zh-CN` / `zh-TW` nằm ở `product_translations`. `slug`, `sku`, giá, media, `tags` kỹ thuật không dịch.
 
 ### Product status
 
@@ -566,6 +570,26 @@ COD
 BANK_TRANSFER
 ONLINE_PROVIDER_FUTURE
 ```
+
+## Localization
+
+Storefront phục vụ 4 ngôn ngữ (chi tiết §31A, `docs/I18N.md`):
+
+```text
+/                 → vi (mặc định, không prefix)
+/en/...           → English
+/zh-CN/...        → 简体中文
+/zh-TW/...        → 繁體中文
+```
+
+- Middleware next-intl: segment URL > cookie `NEXT_LOCALE` > `Accept-Language` > `vi`. URL là canonical; không redirect theo IP.
+- Language switcher ở header (desktop) và mobile drawer; đổi locale giữ nguyên path hiện tại, ghi cookie.
+- Mọi lời gọi API storefront gắn `?lang=<locale>`; response trả `locale` và `content_locale` từng item (fallback `zh-TW → zh-CN → vi`, `zh-CN → zh-TW → vi`, `en → vi`).
+- Product, Category, Home, Promotion có `generateMetadata` theo locale với `alternates.languages` (hreflang 4 locale + `x-default` = vi) và `openGraph.locale`.
+- Sitemap tách theo locale. Slug sản phẩm/danh mục dùng chung cho mọi locale (không dịch slug).
+- Tiền luôn VND, định dạng theo locale qua `@moc-healthy/i18n`; múi giờ `Asia/Ho_Chi_Minh`.
+- Locale của khách được lưu vào `orders.locale` khi checkout và `customers.preferred_locale` để dùng cho thông báo về sau.
+- Font theo locale: Inter + Playfair Display (vi/en), Noto Sans SC (zh-CN), Noto Sans TC (zh-TW). Xem §31 Typography.
 
 ---
 
@@ -783,6 +807,7 @@ Promotion
 Brand Tone
 Channel
 Desired Format
+Target Language (vi / en / zh-CN / zh-TW, có thể chọn nhiều)
 ```
 
 Output:
@@ -815,6 +840,7 @@ ContentItem
 - cta
 - hashtags
 - media_ids
+- locale
 - ai_generated
 - ai_prompt_version
 - status
@@ -836,6 +862,14 @@ PUBLISHED
 FAILED
 ARCHIVED
 ```
+
+## Multilingual generation
+
+- Mỗi `ContentItem` thuộc đúng một `locale`. Một content pack có thể sinh cho nhiều `target_locales`; mỗi locale là một bộ ContentItem riêng, không dịch chéo từ bản vi bằng máy.
+- Prompt template nhận biến `language` và chỉ thị "viết bằng {language} như người bản ngữ"; `zh-TW` dùng từ vựng Đài Loan/Hồng Kông, không chuyển mã từ `zh-CN`.
+- Facts (tên sản phẩm, giá, khuyến mãi) lấy từ bản dịch đã `REVIEWED` của locale đích; nếu thiếu thì dùng fallback và cảnh báo người dùng trước khi sinh.
+- Glossary thương hiệu (`docs/I18N.md` §7) được nạp vào prompt; output JSON được validate và kiểm tra tên thương hiệu còn nguyên.
+- Calendar và Content Hub lọc được theo locale; publish ra kênh nào thì chọn ContentItem đúng locale của kênh đó.
 
 ---
 
@@ -1580,6 +1614,8 @@ content.publish
 analytics.read
 settings.manage
 user.manage
+translations.manage
+ai.use
 ```
 
 ---
@@ -1754,6 +1790,9 @@ Permission
 Product
 Category
 ProductMedia
+ProductTranslation
+CategoryTranslation
+PromotionTranslation
 
 InventoryBatch
 InventoryMovement
@@ -1814,6 +1853,8 @@ Alert
 AuditLog
 SystemSetting
 ```
+
+Locale columns (xem §31A): `users.preferred_locale`, `customers.preferred_locale`, `orders.locale`, `content_items.locale`. Bảng `*_translations` có `(entity_id, locale)` unique, `status` (`AI_DRAFT` | `REVIEWED`), `is_ai_generated`, `source_hash`, `updated_by`.
 
 ---
 
@@ -1931,6 +1972,21 @@ UI:
 - Desktop-first admin.
 - Mobile-friendly storefront.
 
+## Typography
+
+| Locale | Body / UI | Heading storefront | Heading admin |
+|---|---|---|---|
+| `vi`, `en` | Inter (subset latin + vietnamese) | Playfair Display (latin + vietnamese) | Inter 600/700 |
+| `zh-CN` | Noto Sans SC | Noto Sans SC 700 | Noto Sans SC 500/700 |
+| `zh-TW` | Noto Sans TC | Noto Sans TC 700 | Noto Sans TC 500/700 |
+
+- Inter và Playfair Display nạp qua `next/font/google` (self-host, không layout shift), gán `--font-inter`, `--font-playfair`.
+- Noto Sans SC/TC nạp qua `<link>` Google Fonts `display=swap` + `preconnect`, chỉ render khi locale bắt đầu bằng `zh` (không dùng `next/font` cho CJK vì tải toàn bộ ~100 slice lúc build).
+- Tailwind `fontFamily.sans` và `fontFamily.display` đọc biến `--font-sans`, `--font-display`; `html[lang="zh-CN"]` / `html[lang="zh-TW"]` override hai biến này sang Noto Sans; `html[lang^="zh"]` đặt `line-height: 1.7`, `letter-spacing: 0`.
+- Ở locale zh, toàn bộ heading dùng Noto Sans 700; chỉ wordmark "Mộc Healthy" giữ Playfair. Không italic, không uppercase, không letter-spacing âm cho chữ Hán.
+- Scale: storefront `display 40/48`, `h1 32/40`, `h2 24/32`, `h3 20/28`, `body 16/24`; admin `h1 24/32`, `h2 18/28`, `body 14/20`. Chữ Hán trên mobile tối thiểu 15px.
+- Chi tiết và quy tắc chất lượng: `docs/I18N.md` §5.
+
 ## Admin shell
 
 ```text
@@ -1941,6 +1997,7 @@ Page Title
 Global Search
 Notifications
 User Menu
+Language Switcher
 ```
 
 ## Required states
@@ -1953,6 +2010,127 @@ Mọi page phải có:
 - permission denied
 - skeleton
 - mobile responsive where needed
+
+## Localization-ready UI
+
+- Không hard-code chuỗi hiển thị trong component; mọi text đi qua `t()` từ `messages/<locale>/*.json`. Props mặc định tiếng Việt trong `packages/ui` phải chuyển thành props bắt buộc.
+- Layout chịu được chuỗi `en` dài hơn `vi` 10–30% và chữ Hán ngắn hơn 30–50%: không fixed width cho nút/tab/cột trạng thái, truncate phải có tooltip.
+- Tiền / ngày / số chỉ qua formatter `@moc-healthy/i18n`; cấm `'vi-VN'`, `toLocaleString`, helper cục bộ trong component.
+- Nhãn enum/status lấy từ `enums.<Type>.<VALUE>`; màu sắc badge giữ trong map riêng theo value.
+- Language switcher: storefront ở header (desktop) + mobile drawer; admin ở Topbar user menu; ghi cookie `NEXT_LOCALE`, admin ghi thêm `users.preferred_locale`.
+- Mỗi màn hình phải được xem ở `zh-TW` và `en` trước khi đánh dấu DONE (font, tràn chữ, line-height CJK).
+
+---
+
+# 31A. Internationalization & Localization
+
+> Bổ sung 2026-10-12. Sổ tay vận hành chi tiết (glossary 4 ngôn ngữ, quy tắc dịch, checklist): `docs/I18N.md`.
+
+## 31A.1 Mục tiêu
+
+- Storefront và Admin hiển thị đầy đủ 4 ngôn ngữ: `vi` (mặc định), `en`, `zh-CN`, `zh-TW`.
+- Chuỗi giao diện nằm trong **file ngôn ngữ viết tay theo từng locale**; không dịch máy lúc chạy, không sinh file bằng script dịch tự động.
+- Nội dung kinh doanh (sản phẩm, danh mục, khuyến mãi) có bản dịch lưu trong DB; admin nhập tay hoặc bấm "AI dịch các ngôn ngữ còn lại" để nhận **bản nháp**, xem lại, rồi lưu.
+- Mọi feature mới phải giao đủ 4 ngôn ngữ cùng lúc (§40 Definition of Done). Không có khái niệm "dịch sau".
+
+## 31A.2 Locale
+
+```text
+SUPPORTED_LOCALES = vi, en, zh-CN, zh-TW
+DEFAULT_LOCALE    = vi
+FALLBACK          = en → vi | zh-CN → zh-TW → vi | zh-TW → zh-CN → vi
+OG_LOCALE         = vi_VN, en_US, zh_CN, zh_TW
+```
+
+- Một mã locale dùng thống nhất ở URL, cookie `NEXT_LOCALE`, `html lang`, cột `locale` trong DB, query `lang`, `Accept-Language`.
+- Fallback chỉ áp dụng cho nội dung DB. File ngôn ngữ UI phải đủ 100% key ở cả 4 locale.
+
+## 31A.3 Frontend
+
+- Thư viện: **next-intl** cho cả hai app.
+- Storefront: `app/[locale]/...`, `localePrefix: 'as-needed'` (vi không prefix), `src/middleware.ts` (loại trừ `_next`, `api`, file tĩnh), `src/i18n/routing.ts`, `src/i18n/request.ts`. Thêm `app/[locale]/[...rest]/page.tsx → notFound()` để 404 có bản dịch.
+- Admin: next-intl không routing; `src/i18n/request.ts` đọc cookie `NEXT_LOCALE` trong root layout (server); sau login đồng bộ từ `users.preferred_locale` rồi `router.refresh()`.
+- Mọi page hiện tại là `'use client'`; chúng dùng `useTranslations` qua `NextIntlClientProvider`. Trang storefront cần SEO (product, category, layout, home, promotions) tách thành **server wrapper** (fetch + `generateMetadata`) + client component nhận `initialData`.
+- Package mới `packages/i18n` (không phụ thuộc `next`): `locales.ts`, `formatters.ts` (`formatCurrency` VND theo locale, `formatNumber`, `formatDate` / `formatDateTime` cố định `Asia/Ho_Chi_Minh`, `formatRelative`), messages dùng chung (`common`, `errors`, `enums`), `scripts/check.mjs`, `check-allowlist.json`.
+- Component `LocaleMenu` (dumb: `locales`, `value`, `onChange`) trong `packages/ui`; wiring trong Header/mobile drawer (storefront) và Topbar (admin).
+- Messages: `apps/<app>/messages/<locale>/<namespace>.json`, merge trong `src/i18n/request.ts`; khai báo type `IntlMessages` từ bộ `vi` trong `global.d.ts` để `tsc` bắt key sai.
+- `npm run i18n:check` (gắn vào `npm run lint` gốc, thay stub lint của storefront) fail khi: thiếu/thừa key so với `vi`; giá trị rỗng; `en`/`zh` trùng `vi` ngoài allowlist; `zh-TW` trùng `zh-CN`; ICU sai cú pháp; có `'vi-VN'` / `toLocaleString(` / `toLocaleDateString(` trong `apps/*/src`; có chuỗi tiếng Việt có dấu trong `.tsx`/`.ts` ngoài `messages/`, seed, test.
+- API client: `fetchWithAuth` (admin), `fetchPublic` / `fetchDynamic` (storefront) gửi `Accept-Language` và, với storefront, luôn gắn `lang` vào URL (query là cache key). Cả hai parse `detail` dạng object `{code, message, params}` thành `ApiError` có `code`.
+
+## 31A.4 Backend
+
+- Dependency `get_locale(request)`: `lang` query > `Accept-Language` > `settings.DEFAULT_LOCALE`.
+- Helper `localize(entity, locale)` trong `apps/api/app/i18n/localize.py`: merge cột gốc với hàng dịch theo chuỗi fallback, trả thêm `content_locale`.
+- Bảng dịch (migration `016_create_translations`, chỉ `create_table` / `add_column`, an toàn SQLite):
+
+```text
+product_translations
+  id, product_id FK CASCADE, locale String(8)
+  name NOT NULL, short_description, description, unit, ingredients, allergens,
+  nutrition_text, preparation_note, storage_note, shelf_life, seo_title, seo_description, tags JSON
+  status String(20) default 'AI_DRAFT', is_ai_generated Boolean, source_hash String(64),
+  updated_by FK users.id SET NULL, created_at, updated_at
+  UNIQUE(product_id, locale), INDEX(locale, name)
+
+category_translations
+  id, category_id FK CASCADE, locale, name NOT NULL, description, seo_title, seo_description,
+  + status / is_ai_generated / source_hash / updated_by / timestamps, UNIQUE(category_id, locale)
+
+promotion_translations
+  id, promotion_id FK CASCADE, locale, title NOT NULL, description,
+  + status / is_ai_generated / source_hash / updated_by / timestamps, UNIQUE(promotion_id, locale)
+
+add_column
+  users.preferred_locale String(8) default 'vi'
+  customers.preferred_locale String(8) default 'vi'
+  orders.locale String(8) default 'vi'
+  content_items.locale String(8) default 'vi'
+  categories.seo_title String(255), categories.seo_description String(500)
+```
+
+- Cột tiếng Việt gốc là nguồn sự thật và fallback cuối. Chỉ tồn tại hàng `en` / `zh-CN` / `zh-TW`; không có hàng = MISSING. `source_hash` = sha256 các trường vi tại thời điểm dịch; lệch hash → admin hiển thị **Outdated**.
+- Storefront API: mọi endpoint `/storefront/*` nhận locale, trả `locale` cấp cao nhất và `content_locale` từng item, thêm `seo_title` / `seo_description`. Search `q` OR qua cột gốc và bảng dịch của locale yêu cầu.
+- Admin translation API cho `products`, `categories`, `promotions`:
+
+```text
+GET  /api/v1/{entity}/{id}/translations              → { en: {...}|null, zh-CN: ..., zh-TW: ..., outdated: [...] }
+PUT  /api/v1/{entity}/{id}/translations              → upsert, status=REVIEWED, ghi source_hash + updated_by
+POST /api/v1/{entity}/{id}/translations/ai-draft     body { target_locales[], overwrite=false } → { drafts }  (KHÔNG lưu DB)
+```
+
+- AI draft đi qua `AIService` (PII masking, token/cost log) với prompt template `content-translation` (biến `source_locale`, `target_locale`, `glossary`, `brand_rules`, `payload_json`), `expect_json=True`, validate bằng Pydantic `TranslationDraft`, kiểm tra tên thương hiệu và placeholder còn nguyên, từ chối trường rỗng. `MockAIProvider` trả `[<locale>] <source>` để test ổn định. Quyền: `translations.manage` + `ai.use`.
+- Error code: `AppError(code, status, message_vi, params)` + exception handler trung tâm trong `main.py` trả `{"detail": {"code", "message", "params"}}`; 422 → `VALIDATION_ERROR`. Frontend map `errors.<CODE>` 4 locale, fallback `message`. Chuyển đổi theo giai đoạn: storefront, cart, checkout, auth, products, categories, promotions trước; phần còn lại khi chạm vào.
+- Seed: `apps/api/app/core/seed_translations.py` viết tay `en` / `zh-CN` / `zh-TW` cho mọi category, product, promotion demo; `conftest.py` nạp.
+- Config: `DEFAULT_LOCALE`, `SUPPORTED_LOCALES` trong `Settings`.
+
+## 31A.5 AI content theo locale
+
+- `AIGenerateRequest.locale` (mặc định `vi`); content pack nhận `target_locales[]`; `content_items.locale` bắt buộc.
+- Prompt template có biến `language`; đường f-string tiếng Việt hiện tại chỉ phục vụ `vi`, locale khác đi qua `AIService`.
+- Chi tiết §14 Multilingual generation.
+
+## 31A.6 SEO
+
+- `generateMetadata` theo locale với `alternates.languages` (4 locale + `x-default` = vi), `openGraph.locale`.
+- Sitemap theo locale; `alt` ảnh dịch theo locale; không redirect theo IP, chỉ gợi ý đổi ngôn ngữ bằng banner.
+
+## 31A.7 Ngoài phạm vi v1
+
+- Không đa tiền tệ, không quy đổi tỷ giá.
+- Không dịch dữ liệu khách nhập (ghi chú đơn, review) bằng máy.
+- Không dịch slug / URL sản phẩm.
+- Không RTL.
+- Không dịch email/SMS giao dịch trong 19A–19D (dùng `orders.locale` ở prompt thông báo sau).
+
+## 31A.8 Lộ trình triển khai
+
+| Prompt | Phạm vi |
+|---|---|
+| 19A | `packages/i18n`, next-intl 2 app, routing `[locale]`, font, `LocaleMenu`, `i18n:check`, parse error code, server wrapper + metadata, chuyển toàn bộ storefront |
+| 19B | Migration 016, models, `localize()`, `get_locale`, storefront API theo `lang`, translation CRUD + ai-draft, template `content-translation`, `AppError`, seed dịch, tab "Bản dịch" trong admin |
+| 19C | Admin đợt 1: shell, dashboard, auth, products, inventory, orders, customers; gom enum label vào `enums.*` |
+| 19D | Admin đợt 2: marketing, ai-studio, content, analytics, automation, settings (ngôn ngữ ưa thích) |
+| ≥ 20 | Mọi prompt tuân thủ khối "i18n (bắt buộc)" trong `MOC_HEALTHY_VIBE_CODING_PROMPTS.md` |
 
 ---
 
@@ -1980,6 +2158,8 @@ Categories:
 - Sữa chua.
 - Matcha / Tea.
 - Combo.
+
+Mọi category / product / promotion demo phải có bản dịch **viết tay** `en` / `zh-CN` / `zh-TW` trong `seed_translations.py`, dùng đúng glossary `docs/I18N.md` §7 (ví dụ: Sữa chua → Yogurt / 酸奶 / 優格).
 
 ---
 
@@ -2034,6 +2214,9 @@ AI payload:
 - Inventory movement tests.
 - Order total tests.
 - AI structured output validation tests.
+- Locale resolution (`lang` > `Accept-Language` > default) và translation fallback tests.
+- Translation CRUD, `source_hash` / Outdated, AI draft với mock provider (không ghi DB) tests.
+- Error payload có `code` tests.
 
 ## Frontend
 
@@ -2041,6 +2224,8 @@ AI payload:
 - Form validation.
 - Critical user flows.
 - E2E bằng Playwright.
+- i18n key parity và lint chuỗi hard-code (`npm run i18n:check`).
+- Smoke test render 4 locale (font, `html lang`, hreflang) cho storefront.
 
 Critical E2E:
 
@@ -2057,6 +2242,7 @@ Critical E2E:
 11. Schedule.
 12. Mock publish.
 13. Metrics appear dashboard.
+14. Switch storefront to zh-TW, add to cart, checkout, verify order-success và tracking page hiển thị đúng ngôn ngữ, `orders.locale = zh-TW`.
 
 ---
 
@@ -2121,6 +2307,11 @@ TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
 ZALO_APP_ID=
 ZALO_APP_SECRET=
+
+# i18n
+DEFAULT_LOCALE=vi
+SUPPORTED_LOCALES=vi,en,zh-CN,zh-TW
+NEXT_PUBLIC_DEFAULT_LOCALE=vi
 
 # App
 ADMIN_URL=
@@ -2223,11 +2414,14 @@ Exit:
 
 ---
 
-## Phase 4 — AI Content
+## Phase 4 — AI Content & i18n Foundation
 
 Build:
 - AI provider abstraction.
-- Content generation.
+- i18n foundation: next-intl, 4 locale `vi` / `en` / `zh-CN` / `zh-TW`, typography, `packages/i18n`, `i18n:check` (PROMPT 19A).
+- Translation tables + AI translate assist + localized storefront API + error codes (PROMPT 19B).
+- Admin retrofit 4 ngôn ngữ (PROMPT 19C, 19D).
+- Content generation (theo locale).
 - Channel formatting.
 - Prompt versioning.
 - AI generation logs.
@@ -2235,7 +2429,9 @@ Build:
 - Video scripts.
 
 Exit:
-- Một product + campaign tạo được content pack đa kênh.
+- Storefront và Admin hiển thị đầy đủ 4 ngôn ngữ, `i18n:check` xanh.
+- Sản phẩm / danh mục / khuyến mãi demo có bản dịch 3 locale; admin tạo được bản nháp AI và lưu.
+- Một product + campaign tạo được content pack đa kênh **và đa ngôn ngữ**.
 
 ---
 
@@ -2341,6 +2537,10 @@ Một feature chỉ được xem là DONE khi:
 - Seed/dev workflow không hỏng.
 - Không hardcode secret.
 - Happy path và failure path đều test.
+- Không hardcode chuỗi hiển thị; mọi key có đủ 4 locale `vi` / `en` / `zh-CN` / `zh-TW` viết tay, `npm run i18n:check` pass.
+- Tiền / ngày / số qua formatter `@moc-healthy/i18n`; enum và error code mới có nhãn 4 locale.
+- Trường text DB mới cần dịch có bảng `*_translations`, `localize()` và seed 4 locale.
+- Màn hình mới đã được xem ở `zh-TW` và `en` (font, tràn chữ, line-height CJK).
 
 ---
 
@@ -2487,6 +2687,7 @@ Mọi coding agent phải:
    - build
 9. Update docs.
 10. Ghi assumptions rõ nếu requirement chưa xác định.
+11. Đọc `docs/I18N.md` trước khi thêm chuỗi hiển thị, enum, error code hoặc trường text; giao đủ 4 ngôn ngữ trong cùng một prompt, không để "dịch sau".
 
 ---
 
